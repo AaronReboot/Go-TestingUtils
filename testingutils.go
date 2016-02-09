@@ -9,22 +9,28 @@ import (
 
 /*	recursively unpacks objects to examine whether they are deep equal with
 	EPSILON margin of error allowed for differences between float64 components */
-func IsEqual(a, b interface{}) bool {
-	const EPSILON = .0000000000001
+func IsEqual(a, b reflect.Value) bool {
+	const EPSILON = .0000000000000001
 
 	//if a and b aren't the same thing => not equal
-	if reflect.ValueOf(a).Kind() != reflect.ValueOf(b).Kind() {
+	if a.Kind() != b.Kind() {
 		return false
 	}
 
+	//if a and b are pointers indirect to their values
+	if a.Kind() == reflect.Ptr && !a.IsNil() && !b.IsNil() {
+		a = a.Elem()
+		b = b.Elem()
+	}
+
 	//if a and b are slices or structs, check their elements
-	if reflect.ValueOf(a).Kind() == reflect.Slice {
+	if a.Kind() == reflect.Slice {
 		//iterate over members, returning false right away if any member is false
-		if reflect.ValueOf(a).Len() != reflect.ValueOf(b).Len() {
+		if a.Len() != b.Len() {
 			return false
 		}
-		for i := 0; i < reflect.ValueOf(a).Len(); i++ {
-			if !IsEqual(reflect.ValueOf(a).Index(i).Interface(), reflect.ValueOf(b).Index(i).Interface()) {
+		for i := 0; i < a.Len(); i++ {
+			if !IsEqual(a.Index(i), b.Index(i)) {
 				return false
 			}
 		}
@@ -32,13 +38,13 @@ func IsEqual(a, b interface{}) bool {
 	}
 
 	//if a & b are structs, iterate over fields, returning false right away if any member is false
-	if reflect.ValueOf(a).Kind() == reflect.Struct {
-		if reflect.ValueOf(a).NumField() != reflect.ValueOf(b).NumField() {
+	if a.Kind() == reflect.Struct {
+		if a.NumField() != b.NumField() {
 			return false
 		}
 		//iterate over struct's fields
-		for i := 0; i < reflect.ValueOf(a).NumField(); i++ {
-			if !IsEqual(reflect.ValueOf(a).Field(i).Interface(), reflect.ValueOf(b).Field(i).Interface()) {
+		for i := 0; i < a.NumField(); i++ {
+			if !IsEqual(a.Field(i), b.Field(i)) {
 				return false
 			}
 		}
@@ -49,25 +55,27 @@ func IsEqual(a, b interface{}) bool {
 	//Note, maps are already working well for some types because of fallthrough to reflect.DeepEqual
 
 	//if a & b are float64 see whether they are within EPSILON of each other
-	if reflect.ValueOf(a).Kind() == reflect.Float64 && reflect.ValueOf(b).Kind() == reflect.Float64 {
+	if a.Kind() == reflect.Float64 {
 		//find diff, by subtracting smaller from greater
 		var (
 			aflt, bflt float64
-			ok         bool
+		//	ok         bool
 		)
-		if aflt, ok = a.(float64); !ok {
-			log.Fatal("Fail sanity check: a is not a float64")
-		}
-		if bflt, ok = b.(float64); !ok {
-			log.Fatal("Fail sanity check: b is not a float64")
-		}
+		//if aflt, ok = a.(float64); !ok {
+		//	log.Fatal("Fail sanity check: a is not a float64")
+		//}
+		//if bflt, ok = b.(float64); !ok {
+		//	log.Fatal("Fail sanity check: b is not a float64")
+		//}
+		aflt = a.Float()
+		bflt = b.Float()
 		//return whether diff is smaller than EPSILON (dunno if aflt or bflt is bigger)
 		return ((aflt - bflt) < EPSILON) && ((bflt - aflt) < EPSILON)
 	}
 
 	//cover any unhandled case, like intentional ones (err, int, etc) and anything
 	//we missed by accident (is ok becaue DeepEqual is conservative)
-	return reflect.DeepEqual(a, b)
+	return reflect.DeepEqual(a.Interface(), b.Interface())
 }
 
 func PrintTruncated(val interface{}) string {
@@ -117,14 +125,14 @@ func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 
 	pass := true
 	for i := 0; i < len(got); i++ {
-		if !IsEqual(got[i].Interface(), expect[i].Interface()) {
+		if !IsEqual(got[i], expect[i]) {
 			//if this function returns more than one result, figure out the name of problem result
 			var name string
 			if len(got) > 1 {
 				name = " (" + exNames[i] + ")"
 			}
-			t.Logf("Expected%s: %s\n\n", name, PrintTruncated(expect[i].Interface()))
-			t.Logf("Got     %s: %s\n\n", name, PrintTruncated(got[i].Interface()))
+			t.Logf("Expected%s: %s\n\n", name, PrintTruncated(expect[i]))
+			t.Logf("Got     %s: %s\n\n", name, PrintTruncated(got[i]))
 			pass = false
 		}
 	}
