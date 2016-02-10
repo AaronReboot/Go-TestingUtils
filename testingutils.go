@@ -10,7 +10,7 @@ import (
 /*	recursively unpacks objects to examine whether they are deep equal with
 	EPSILON margin of error allowed for differences between float64 components */
 func IsEqual(a, b reflect.Value) bool {
-	const EPSILON = .0000000000000001
+	const EPSILON = .00000000000001
 
 	//if a and b aren't the same thing => not equal
 	if a.Kind() != b.Kind() {
