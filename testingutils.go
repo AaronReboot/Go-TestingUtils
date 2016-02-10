@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const EPSILON = .00000000000001
+const EPSILON = .0000000000001
 
 type callHistoryElem struct {
 	a, b reflect.Value
