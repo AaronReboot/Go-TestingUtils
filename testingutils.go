@@ -56,21 +56,10 @@ func IsEqual(a, b reflect.Value) bool {
 
 	//if a & b are float64 see whether they are within EPSILON of each other
 	if a.Kind() == reflect.Float64 {
-		//find diff, by subtracting smaller from greater
-		var (
-			aflt, bflt float64
-		//	ok         bool
-		)
-		//if aflt, ok = a.(float64); !ok {
-		//	log.Fatal("Fail sanity check: a is not a float64")
-		//}
-		//if bflt, ok = b.(float64); !ok {
-		//	log.Fatal("Fail sanity check: b is not a float64")
-		//}
-		aflt = a.Float()
-		bflt = b.Float()
-		//return whether diff is smaller than EPSILON (dunno if aflt or bflt is bigger)
-		return ((aflt - bflt) < EPSILON) && ((bflt - aflt) < EPSILON)
+		//calculate difference between a and b
+		diff := a.Float() - b.Float()
+		//return whether diff is smaller than EPSILON (but not sure if diff is negative of positive)
+		return (diff < EPSILON) && (-diff < EPSILON)
 	}
 
 	//cover any unhandled case, like intentional ones (err, int, etc) and anything
@@ -92,17 +81,18 @@ func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 	rvals := func(vals interface{}) (result []reflect.Value, names []string) {
 		//figure out whether vals is a struct (if it is, we need to
 		//read each field of struct into slice elements of result
-		if reflect.ValueOf(vals).Kind() == reflect.Struct {
-			result = make([]reflect.Value, reflect.ValueOf(vals).NumField())
-			names = make([]string, reflect.ValueOf(vals).NumField())
+		valOfVals := reflect.ValueOf(vals)
+		if valOfVals.Kind() == reflect.Struct {
+			result = make([]reflect.Value, valOfVals.NumField())
+			names = make([]string, valOfVals.NumField())
 			//load them in
-			for i := 0; i < reflect.ValueOf(vals).NumField(); i++ {
-				result[i] = reflect.ValueOf(vals).Field(i)
-				names[i] = reflect.ValueOf(vals).Type().Field(i).Name
+			for i := 0; i < valOfVals.NumField(); i++ {
+				result[i] = valOfVals.Field(i)
+				names[i] = valOfVals.Type().Field(i).Name
 			}
 		} else {
 			result = make([]reflect.Value, 1)
-			result[0] = reflect.ValueOf(vals)
+			result[0] = valOfVals
 		}
 		return
 	}
