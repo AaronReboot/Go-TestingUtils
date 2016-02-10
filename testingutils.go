@@ -7,10 +7,26 @@ import (
 	"testing"
 )
 
-/*	recursively unpacks objects to examine whether they are deep equal with
+const EPSILON = .00000000000001
+
+type callHistoryElem struct {
+	a, b reflect.Value
+}
+
+/*	IsEqual recursively unpacks objects to examine whether they are deep equal with
 	EPSILON margin of error allowed for differences between float64 components */
 func IsEqual(a, b reflect.Value) bool {
-	const EPSILON = .00000000000001
+	return IsEqual_LoopBreaker(a, b, make(map[callHistoryElem]struct{}))
+}
+
+/*	IsEqual_LoopBreaker does the work of IsEqual, keeping track of all the recursive
+	calls it's made so far, thus avoiding loops */
+func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]struct{}) bool {
+	//if there's loop then we haven't found a problem so far
+	if _, exists := callHistory[callHistoryElem{a, b}]; exists {
+		return true
+	}
+	callHistory[callHistoryElem{a, b}] = struct{}{}
 
 	//if a and b aren't the same thing => not equal
 	if a.Kind() != b.Kind() {
@@ -30,7 +46,7 @@ func IsEqual(a, b reflect.Value) bool {
 			return false
 		}
 		for i := 0; i < a.Len(); i++ {
-			if !IsEqual(a.Index(i), b.Index(i)) {
+			if !IsEqual_LoopBreaker(a.Index(i), b.Index(i), callHistory) {
 				return false
 			}
 		}
@@ -44,7 +60,7 @@ func IsEqual(a, b reflect.Value) bool {
 		}
 		//iterate over struct's fields
 		for i := 0; i < a.NumField(); i++ {
-			if !IsEqual(a.Field(i), b.Field(i)) {
+			if !IsEqual_LoopBreaker(a.Field(i), b.Field(i), callHistory) {
 				return false
 			}
 		}
