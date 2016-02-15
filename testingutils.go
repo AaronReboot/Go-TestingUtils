@@ -2,7 +2,6 @@ package testingutils
 
 import (
 	"fmt"
-	"log"
 	"reflect"
 	"testing"
 )
@@ -26,7 +25,6 @@ func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]str
 	if _, exists := callHistory[callHistoryElem{a, b}]; exists {
 		return true
 	}
-	callHistory[callHistoryElem{a, b}] = struct{}{}
 
 	//if a and b aren't the same thing => not equal
 	if a.Kind() != b.Kind() {
@@ -38,6 +36,17 @@ func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]str
 		a = a.Elem()
 		b = b.Elem()
 	}
+
+	//if a & b are float64 see whether they are within EPSILON of each other
+	if a.Kind() == reflect.Float64 {
+		//calculate difference between a and b
+		diff := a.Float() - b.Float()
+		//return whether diff is smaller than EPSILON (but not sure if diff is negative of positive)
+		return (diff < EPSILON) && (-diff < EPSILON)
+	}
+
+	//add this call to the call history
+	callHistory[callHistoryElem{a, b}] = struct{}{}
 
 	//if a and b are slices or structs, check their elements
 	if a.Kind() == reflect.Slice {
@@ -70,14 +79,6 @@ func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]str
 	//TODO: if a & b are maps, iterate over keys & values in case we need to compare floats
 	//Note, maps are already working well for some types because of fallthrough to reflect.DeepEqual
 
-	//if a & b are float64 see whether they are within EPSILON of each other
-	if a.Kind() == reflect.Float64 {
-		//calculate difference between a and b
-		diff := a.Float() - b.Float()
-		//return whether diff is smaller than EPSILON (but not sure if diff is negative of positive)
-		return (diff < EPSILON) && (-diff < EPSILON)
-	}
-
 	//cover any unhandled case, like intentional ones (err, int, etc) and anything
 	//we missed by accident (is ok becaue DeepEqual is conservative)
 	return reflect.DeepEqual(a.Interface(), b.Interface())
@@ -85,10 +86,10 @@ func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]str
 
 func PrintTruncated(val interface{}) string {
 	result := fmt.Sprint(val)
-	if len(result) < 500 {
+	if len(result) < 5000 {
 		return result
 	}
-	return result[:500] + "\n[...output truncated...]"
+	return result[:5000] + "\n[...output truncated...]"
 }
 
 /*	run test on func fnptr unsing invals as parameters and checking for expectvals as results
@@ -122,11 +123,13 @@ func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 	expect, exNames := rvals(expectvals)
 
 	if len(in) != fn.Type().NumIn() {
-		log.Fatal("The number of in params doesn't match function parameters.")
+		t.Fatal("The number of in params doesn't match function parameters.")
+		return false
 	}
 	got := fn.Call(in)
 	if len(got) != fn.Type().NumOut() {
-		log.Fatal("The number of expect params doesn't match function results.")
+		t.Fatal("The number of expect params doesn't match function results.")
+		return false
 	}
 
 	pass := true
@@ -157,17 +160,20 @@ func RunAllTests(fnptr, allInVals, allExpectVals interface{}, t *testing.T) {
 
 	//confirm that allInVals and allExpectVals are slices
 	if reflect.ValueOf(allInVals).Kind() != reflect.Slice {
-		log.Fatal("allInVals is not a slice")
+		t.Fatal("allInVals is not a slice")
+		return
 	}
 	if reflect.ValueOf(allExpectVals).Kind() != reflect.Slice {
-		log.Fatal("allExpectVals is not a slice")
+		t.Fatal("allExpectVals is not a slice")
+		return
 	}
 	//convert allInVals & allExpectVals interface{} "blobs" into slice of interfaces
 	allIn := fracture(allInVals)
 	allExpect := fracture(allExpectVals)
 
 	if len(allIn) != len(allExpect) {
-		log.Fatal("Number of input tests doesn't match number of expected results")
+		t.Fatal("Number of input tests doesn't match number of expected results")
+		return
 	}
 	for i := 0; i < len(allIn); i++ {
 		t.Logf("Testing case %v\n", i)
