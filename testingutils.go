@@ -1,3 +1,5 @@
+// Package testingutils is a simple helper package for running table tests.
+// If you're running Go 1.7 or higher, use new parameterized tests instead.
 package testingutils
 
 import (
@@ -6,21 +8,23 @@ import (
 	"testing"
 )
 
-const EPSILON = .0000000000001
+//const EPSILON = .0000000000001
+const EPSILON = .01
 
 type callHistoryElem struct {
 	a, b reflect.Value
 }
 
-/*	IsEqual recursively unpacks objects to examine whether they are deep equal with
-	EPSILON margin of error allowed for differences between float64 components */
+// IsEqual recursively unpacks objects to examine whether they are deep equal
+// with EPSILON margin of error allowed for differences between float64 and
+// float32 components
 func IsEqual(a, b reflect.Value) bool {
-	return IsEqual_LoopBreaker(a, b, make(map[callHistoryElem]struct{}))
+	return IsEqualLoopBreaker(a, b, make(map[callHistoryElem]struct{}))
 }
 
-/*	IsEqual_LoopBreaker does the work of IsEqual, keeping track of all the recursive
-	calls it's made so far, thus avoiding loops */
-func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]struct{}) bool {
+// IsEqualLoopBreaker does the work of IsEqual, keeping track of all the
+// recursive calls it's made so far, thus avoiding loops
+func IsEqualLoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]struct{}) bool {
 	//if there's loop then we haven't found a problem so far
 	if _, exists := callHistory[callHistoryElem{a, b}]; exists {
 		return true
@@ -38,38 +42,42 @@ func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]str
 	}
 
 	//if a & b are float64 see whether they are within EPSILON of each other
-	if a.Kind() == reflect.Float64 {
+	if a.Kind() == reflect.Float64 || a.Kind() == reflect.Float32 {
 		//calculate difference between a and b
 		diff := a.Float() - b.Float()
 		//return whether diff is smaller than EPSILON (but not sure if diff is negative of positive)
-		return (diff < EPSILON) && (-diff < EPSILON)
+		ok := (diff < EPSILON) && (-diff < EPSILON)
+		//if !ok {
+		//	fmt.Printf("Failing on a floating-point comparison: %f != %f\n", a.Float(), b.Float())
+		//}
+		return ok
 	}
 
-	//add this call to the call history
+	// add this call to the call history
 	callHistory[callHistoryElem{a, b}] = struct{}{}
 
-	//if a and b are slices or structs, check their elements
+	// if a and b are slices or structs, check their elements
 	if a.Kind() == reflect.Slice {
-		//iterate over members, returning false right away if any member is false
+		// iterate over members, returning false right away if any member is false
 		if a.Len() != b.Len() {
 			return false
 		}
 		for i := 0; i < a.Len(); i++ {
-			if !IsEqual_LoopBreaker(a.Index(i), b.Index(i), callHistory) {
+			if !IsEqualLoopBreaker(a.Index(i), b.Index(i), callHistory) {
 				return false
 			}
 		}
 		return true
 	}
 
-	//if a & b are structs, iterate over fields, returning false right away if any member is false
+	// if a & b are structs, iterate over fields, returning false right away if any member is false
 	if a.Kind() == reflect.Struct {
 		if a.NumField() != b.NumField() {
 			return false
 		}
-		//iterate over struct's fields
+		// iterate over struct's fields
 		for i := 0; i < a.NumField(); i++ {
-			if !IsEqual_LoopBreaker(a.Field(i), b.Field(i), callHistory) {
+			if !IsEqualLoopBreaker(a.Field(i), b.Field(i), callHistory) {
 				return false
 			}
 		}
@@ -80,7 +88,7 @@ func IsEqual_LoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]str
 	//Note, maps are already working well for some types because of fallthrough to reflect.DeepEqual
 
 	//cover any unhandled case, like intentional ones (err, int, etc) and anything
-	//we missed by accident (is ok becaue DeepEqual is conservative)
+	//we missed by accident (is ok because DeepEqual is conservative)
 	return reflect.DeepEqual(a.Interface(), b.Interface())
 }
 
@@ -92,17 +100,17 @@ func PrintTruncated(val interface{}) string {
 	return result[:5000] + "\n[...output truncated...]"
 }
 
-/*	run test on func fnptr unsing invals as parameters and checking for expectvals as results
-	returns true if test ok, returns false if test fails */
+// RunTest runs test on func fnptr unsing invals as parameters and checking
+// for expectvals as results returns true if test ok, returns false if test fails
 func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 	rvals := func(vals interface{}) (result []reflect.Value, names []string) {
-		//figure out whether vals is a struct (if it is, we need to
-		//read each field of struct into slice elements of result
+		// figure out whether vals is a struct (if it is, we need to
+		// read each field of struct into slice elements of result
 		valOfVals := reflect.ValueOf(vals)
 		if valOfVals.Kind() == reflect.Struct {
 			result = make([]reflect.Value, valOfVals.NumField())
 			names = make([]string, valOfVals.NumField())
-			//load them in
+			// load them in
 			for i := 0; i < valOfVals.NumField(); i++ {
 				result[i] = valOfVals.Field(i)
 				names[i] = valOfVals.Type().Field(i).Name
@@ -117,9 +125,9 @@ func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 	//obtain function/value reflect thing from fn
 	fn := reflect.ValueOf(fnptr)
 
-	//convert invals to slice of reflect.Values
+	// convert invals to slice of reflect.Values
 	in, _ /*inNames*/ := rvals(invals)
-	//convert expectvals to slice of reflect.Values
+	// convert expectvals to slice of reflect.Values
 	expect, exNames := rvals(expectvals)
 
 	if len(in) != fn.Type().NumIn() {
@@ -148,7 +156,7 @@ func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 	return pass
 }
 
-/* run battery of all tests provided */
+// RunAllTests runs battery of all tests provided
 func RunAllTests(fnptr, allInVals, allExpectVals interface{}, t *testing.T) {
 	fracture := func(blob interface{}) (result []interface{}) {
 		result = make([]interface{}, reflect.ValueOf(blob).Len())
@@ -158,7 +166,7 @@ func RunAllTests(fnptr, allInVals, allExpectVals interface{}, t *testing.T) {
 		return
 	}
 
-	//confirm that allInVals and allExpectVals are slices
+	// confirm that allInVals and allExpectVals are slices
 	if reflect.ValueOf(allInVals).Kind() != reflect.Slice {
 		t.Fatal("allInVals is not a slice")
 		return
@@ -167,7 +175,7 @@ func RunAllTests(fnptr, allInVals, allExpectVals interface{}, t *testing.T) {
 		t.Fatal("allExpectVals is not a slice")
 		return
 	}
-	//convert allInVals & allExpectVals interface{} "blobs" into slice of interfaces
+	// convert allInVals & allExpectVals interface{} "blobs" into slice of interfaces
 	allIn := fracture(allInVals)
 	allExpect := fracture(allExpectVals)
 
