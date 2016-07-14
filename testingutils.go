@@ -9,7 +9,7 @@ import (
 )
 
 //const EPSILON = .0000000000001
-const EPSILON = .01
+const EPSILON = .00001
 
 type callHistoryElem struct {
 	a, b reflect.Value
@@ -18,21 +18,21 @@ type callHistoryElem struct {
 // IsEqual recursively unpacks objects to examine whether they are deep equal
 // with EPSILON margin of error allowed for differences between float64 and
 // float32 components
-func IsEqual(a, b reflect.Value) bool {
-	return IsEqualLoopBreaker(a, b, make(map[callHistoryElem]struct{}))
+func IsEqual(a, b reflect.Value, t *testing.T) (bool, string) {
+	return IsEqualLoopBreaker(a, b, make(map[callHistoryElem]struct{}), t)
 }
 
 // IsEqualLoopBreaker does the work of IsEqual, keeping track of all the
 // recursive calls it's made so far, thus avoiding loops
-func IsEqualLoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]struct{}) bool {
+func IsEqualLoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]struct{}, t *testing.T) (bool, string) {
 	//if there's loop then we haven't found a problem so far
 	if _, exists := callHistory[callHistoryElem{a, b}]; exists {
-		return true
+		return true, ""
 	}
 
 	//if a and b aren't the same thing => not equal
 	if a.Kind() != b.Kind() {
-		return false
+		return false, "Not same types"
 	}
 
 	//if a and b are pointers indirect to their values
@@ -47,41 +47,45 @@ func IsEqualLoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]stru
 		diff := a.Float() - b.Float()
 		//return whether diff is smaller than EPSILON (but not sure if diff is negative of positive)
 		ok := (diff < EPSILON) && (-diff < EPSILON)
-		//if !ok {
-		//	fmt.Printf("Failing on a floating-point comparison: %f != %f\n", a.Float(), b.Float())
-		//}
-		return ok
+		var msg string
+		if !ok {
+			msg = fmt.Sprintf("Failing on a floating-point comparison: %f != %f\n", a.Float(), b.Float())
+			t.Logf(msg)
+		}
+		return ok, msg
 	}
 
 	// add this call to the call history
 	callHistory[callHistoryElem{a, b}] = struct{}{}
 
 	// if a and b are slices or structs, check their elements
-	if a.Kind() == reflect.Slice {
+	if a.Kind() == reflect.Slice || a.Kind() == reflect.Array {
 		// iterate over members, returning false right away if any member is false
 		if a.Len() != b.Len() {
-			return false
+			return false, "Slices having different lengths"
 		}
 		for i := 0; i < a.Len(); i++ {
-			if !IsEqualLoopBreaker(a.Index(i), b.Index(i), callHistory) {
-				return false
+			pass, msg := IsEqualLoopBreaker(a.Index(i), b.Index(i), callHistory, t)
+			if !pass {
+				return false, msg
 			}
 		}
-		return true
+		return true, ""
 	}
 
 	// if a & b are structs, iterate over fields, returning false right away if any member is false
 	if a.Kind() == reflect.Struct {
 		if a.NumField() != b.NumField() {
-			return false
+			return false, "Number of fields in struct do not match"
 		}
 		// iterate over struct's fields
 		for i := 0; i < a.NumField(); i++ {
-			if !IsEqualLoopBreaker(a.Field(i), b.Field(i), callHistory) {
-				return false
+			ok, msg := IsEqualLoopBreaker(a.Field(i), b.Field(i), callHistory, t)
+			if !ok {
+				return false, msg
 			}
 		}
-		return true
+		return true, ""
 	}
 
 	//TODO: if a & b are maps, iterate over keys & values in case we need to compare floats
@@ -89,7 +93,11 @@ func IsEqualLoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]stru
 
 	//cover any unhandled case, like intentional ones (err, int, etc) and anything
 	//we missed by accident (is ok because DeepEqual is conservative)
-	return reflect.DeepEqual(a.Interface(), b.Interface())
+	ok := reflect.DeepEqual(a.Interface(), b.Interface())
+	if !ok {
+		return false, "reflect.DeepEqual failed"
+	}
+	return true, ""
 }
 
 func PrintTruncated(val interface{}) string {
@@ -102,7 +110,7 @@ func PrintTruncated(val interface{}) string {
 
 // RunTest runs test on func fnptr unsing invals as parameters and checking
 // for expectvals as results returns true if test ok, returns false if test fails
-func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
+func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) (bool, string) {
 	rvals := func(vals interface{}) (result []reflect.Value, names []string) {
 		// figure out whether vals is a struct (if it is, we need to
 		// read each field of struct into slice elements of result
@@ -132,17 +140,21 @@ func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 
 	if len(in) != fn.Type().NumIn() {
 		t.Fatal("The number of in params doesn't match function parameters.")
-		return false
+		return false, ""
 	}
 	got := fn.Call(in)
 	if len(got) != fn.Type().NumOut() {
 		t.Fatal("The number of expect params doesn't match function results.")
-		return false
+		return false, ""
 	}
 
-	pass := true
+	var (
+		pass = true
+		msg  = ""
+	)
 	for i := 0; i < len(got); i++ {
-		if !IsEqual(got[i], expect[i]) {
+		pass, msg = IsEqual(got[i], expect[i], t)
+		if !pass {
 			//if this function returns more than one result, figure out the name of problem result
 			var name string
 			if len(got) > 1 {
@@ -150,10 +162,10 @@ func RunTest(fnptr, invals, expectvals interface{}, t *testing.T) bool {
 			}
 			t.Logf("Expected%s: %s\n\n", name, PrintTruncated(expect[i]))
 			t.Logf("Got     %s: %s\n\n", name, PrintTruncated(got[i]))
-			pass = false
+			return false, msg
 		}
 	}
-	return pass
+	return true, ""
 }
 
 // RunAllTests runs battery of all tests provided
@@ -185,9 +197,9 @@ func RunAllTests(fnptr, allInVals, allExpectVals interface{}, t *testing.T) {
 	}
 	for i := 0; i < len(allIn); i++ {
 		t.Logf("Testing case %v\n", i)
-		pass := RunTest(fnptr, allIn[i], allExpect[i], t)
+		pass, msg := RunTest(fnptr, allIn[i], allExpect[i], t)
 		if !pass {
-			t.Errorf("FAIL case %v\n", i)
+			t.Errorf("FAIL case %v (%s)\n", i, msg)
 		}
 	}
 }
