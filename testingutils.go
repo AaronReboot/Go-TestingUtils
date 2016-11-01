@@ -101,7 +101,7 @@ func IsEqualLoopBreaker(a, b reflect.Value, callHistory map[callHistoryElem]stru
 }
 
 func PrintTruncated(val interface{}) string {
-	result := fmt.Sprint(val)
+	result := fmt.Sprintf("%+v", val)
 	if len(result) < 5000 {
 		return result
 	}
